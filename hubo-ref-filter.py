@@ -37,7 +37,8 @@ from ctypes import *
 
 # Open Hubo-Ach feed-forward and feed-back (reference and state) channels
 s = ach.Channel(ha.HUBO_CHAN_STATE_NAME)
-r = ach.Channel(ha.HUBO_CHAN_REF_NAME)
+r_in = ach.Channel(ha.HUBO_CHAN_REF_FILTER_NAME)
+r_out = ach.Channel(ha.HUBO_CHAN_REF_NAME)
 #s.flush()
 #r.flush()
 
@@ -45,25 +46,39 @@ r = ach.Channel(ha.HUBO_CHAN_REF_NAME)
 state = ha.HUBO_STATE()
 
 # feed-back will now be refered to as "ref"
-ref = ha.HUBO_REF()
+ref_in = ha.HUBO_REF()
+ref_out = ha.HUBO_REF()
 
-# Get the current feed-forward (state) 
-[statuss, framesizes] = s.get(state, wait=False, last=False)
+# filter length
+filtLength = ha.HUBO_REF_FILTER_LENGTH * 2.0  
 
-#Set Left Elbow Bend (LEB) and Right Shoulder Pitch (RSP) to  -0.2 rad and 0.1 rad respectively
-ref.ref[ha.LEB] = -0.2
-ref.ref[ha.RSP] = 0.1
+# sleep time (sec)
+sleepTime = 0.005
 
-# Print out the actual position of the LEB
-print "Joint = ", state.joint[ha.LEB].pos
+def doRefFilter(ref, state, L):
+  out = (ref * (L-1.0) + ref) / L;
+  return out
 
-# Print out the Left foot torque in X
-print "Mx = ", state.ft[ha.HUBO_FT_L_FOOT].m_x
+if __name__=='__main__':
 
-# Write to the feed-forward channel
-r.put(ref)
+  # Get the current feed-forward (state) 
+  while(True):
+    [statuss, framesizes] = s.get(state, wait=False, last=True)
+    [statusr_in, framesizer_in] = r_in.get(ref_in, wait=False, last=True)
 
-# Close the connection to the channels
-r.close()
-s.close()
+    # filter reference
+    for i in range(0, ha.HUBO_JOINT_COUNT):
+      ref_out.ref[i] = doRefFilter(ref_in.ref[i], state.joint[i].pos, filtLength)
+
+    #push on ref channel
+    r_out.put(ref_out)
+
+    # sleep (don't care much for RT)
+    time.sleep(sleepTime)
+
+
+  # Close the connection to the channels
+  r_in.close()
+  r_out.close()
+  s.close()
 
